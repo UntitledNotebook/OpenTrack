@@ -39,6 +39,7 @@
 // ControlFSM States
 #include "fsm_basic_controller.hpp"
 #include "fsm_tracker_controller.hpp"
+#include "fsm_vae_controller.hpp"
 #include "fsm_loco_controller.hpp"
 #include "fsm_stand_controller.hpp"
 
@@ -104,6 +105,95 @@ public:
             const char *motion;
         };
 
+        // For local/robot experiments, allow a small explicit registry so
+        // startup does not eagerly load all demo policies.  Motions are bound
+        // to mode 0 slots in the comma-separated order.
+        const char *custom_policy_env = std::getenv("G1_TRACKER_POLICY");
+        const char *custom_motions_env = std::getenv("G1_TRACKER_MOTIONS");
+        const char *custom_vae_policy_env = std::getenv("G1_VAE_POLICY");
+        const char *custom_vae_motions_env = std::getenv("G1_VAE_MOTIONS");
+        const bool has_custom_policy =
+            custom_policy_env != nullptr && custom_policy_env[0] != '\0';
+        const bool has_custom_motions =
+            custom_motions_env != nullptr && custom_motions_env[0] != '\0';
+        const bool has_custom_vae_policy =
+            custom_vae_policy_env != nullptr && custom_vae_policy_env[0] != '\0';
+        const bool has_custom_vae_motions =
+            custom_vae_motions_env != nullptr && custom_vae_motions_env[0] != '\0';
+        if (has_custom_policy != has_custom_motions)
+        {
+            throw std::runtime_error(
+                "G1_TRACKER_POLICY and G1_TRACKER_MOTIONS must be set together");
+        }
+        if (has_custom_vae_policy != has_custom_vae_motions)
+        {
+            throw std::runtime_error(
+                "G1_VAE_POLICY and G1_VAE_MOTIONS must be set together");
+        }
+        if (has_custom_policy && has_custom_vae_policy)
+        {
+            throw std::runtime_error(
+                "configure either a tracker registry or a VAE registry, not both");
+        }
+
+        if (has_custom_vae_policy)
+        {
+            std::stringstream motion_stream(custom_vae_motions_env);
+            std::string motion;
+            int slot = 0;
+            while (std::getline(motion_stream, motion, ','))
+            {
+                const auto first = motion.find_first_not_of(" \t");
+                const auto last = motion.find_last_not_of(" \t");
+                if (first == std::string::npos)
+                {
+                    continue;
+                }
+                motion = motion.substr(first, last - first + 1);
+                if (slot >= 20)
+                {
+                    throw std::runtime_error("G1_VAE_MOTIONS supports at most 20 entries");
+                }
+                _stateList.controller_mapping[0][slot++] =
+                    new FsmVaeController(custom_vae_policy_env, motion);
+            }
+            if (slot == 0)
+            {
+                throw std::runtime_error("G1_VAE_MOTIONS did not contain a motion name");
+            }
+            LOG(INFO) << "[VAE_REGISTRY] custom policy=" << custom_vae_policy_env
+                      << ", motion_count=" << slot;
+        }
+        else if (has_custom_policy)
+        {
+            std::stringstream motion_stream(custom_motions_env);
+            std::string motion;
+            int slot = 0;
+            while (std::getline(motion_stream, motion, ','))
+            {
+                const auto first = motion.find_first_not_of(" \t");
+                const auto last = motion.find_last_not_of(" \t");
+                if (first == std::string::npos)
+                {
+                    continue;
+                }
+                motion = motion.substr(first, last - first + 1);
+                if (slot >= 20)
+                {
+                    throw std::runtime_error("G1_TRACKER_MOTIONS supports at most 20 entries");
+                }
+                _stateList.controller_mapping[0][slot++] =
+                    new FsmTrackerController(custom_policy_env, motion);
+            }
+            if (slot == 0)
+            {
+                throw std::runtime_error("G1_TRACKER_MOTIONS did not contain a motion name");
+            }
+            LOG(INFO) << "[TRACKER_REGISTRY] custom policy=" << custom_policy_env
+                      << ", motion_count=" << slot;
+        }
+        else
+        {
         // demo_v2.json: 40 motions, 8 policies. Fill mode 0 (1-20) and mode 1 (21-40).
         const std::array<MotionBinding, 40> motion_bindings = {{
             {"05151715_G1TrackingGeneralDR_new_specialist1", "dance1_subject2"},
@@ -178,6 +268,7 @@ public:
             _stateList.controller_mapping[group][slot] = new FsmTrackerController(
                 kGeneralistPolicy, motion_bindings[i].motion);
         }
+        }
 
         curr_fsm_ctrl_ptr = _stateList.invalid;
         dance_order = DANCE_ORDER::KDANCE1;
@@ -219,12 +310,27 @@ public:
                 {
                     auto *ctrl = _stateList.controller_mapping[g][s];
                     auto *tracker = dynamic_cast<FsmTrackerController *>(ctrl);
-                    if (tracker == nullptr) continue;
                     std::string key = "m" + std::to_string(g) + "_s" + std::to_string(s);
-                    std::string value = std::string("policy=") + tracker->GetPolicyName() +
-                                        ", motion=" + tracker->GetMotionName() +
-                                        ", checkpoint_dir=" + tracker->GetPolicyCheckpointDir();
-                    lg.Selfcheck(key, value);
+                    if (tracker != nullptr)
+                    {
+                        std::string value = std::string("controller=tracker, policy=") +
+                                            tracker->GetPolicyName() +
+                                            ", motion=" + tracker->GetMotionName() +
+                                            ", checkpoint_dir=" + tracker->GetPolicyCheckpointDir();
+                        lg.Selfcheck(key, value);
+                        continue;
+                    }
+                    auto *vae = dynamic_cast<FsmVaeController *>(ctrl);
+                    if (vae != nullptr)
+                    {
+                        std::string value = std::string("controller=vae, policy=") +
+                                            vae->GetPolicyName() +
+                                            ", motion=" + vae->GetMotionName() +
+                                            ", checkpoint_dir=" + vae->GetPolicyCheckpointDir() +
+                                            ", inference=" + vae->GetInferenceMode() +
+                                            ", noise_std=" + std::to_string(vae->GetNoiseStd());
+                        lg.Selfcheck(key, value);
+                    }
                 }
             }
         }
@@ -667,7 +773,8 @@ private:
             return false;
         }
 
-        return dynamic_cast<FsmTrackerController *>(curr_fsm_ctrl_ptr) != nullptr;
+        return dynamic_cast<FsmTrackerController *>(curr_fsm_ctrl_ptr) != nullptr ||
+               dynamic_cast<FsmVaeController *>(curr_fsm_ctrl_ptr) != nullptr;
     }
 
     DanceTorqueProjectionStats ApplyDanceTorqueProjection(
@@ -748,6 +855,31 @@ private:
         OfficialLogger::Instance().Event("FSM", oss.str());
     }
 
+    float TrackerSwitchBlendSeconds() const
+    {
+        const char *value = std::getenv("G1_TRACKER_BLEND_SECONDS");
+        if (value == nullptr || *value == '\0')
+        {
+            return kSwitchBlendSeconds;
+        }
+
+        try
+        {
+            const float seconds = std::stof(value);
+            if (!std::isfinite(seconds) || seconds < 0.0f || seconds > 5.0f)
+            {
+                throw std::out_of_range("blend duration must be in [0, 5]");
+            }
+            return seconds;
+        }
+        catch (const std::exception &error)
+        {
+            LOG(WARNING) << "Ignoring invalid G1_TRACKER_BLEND_SECONDS='" << value
+                         << "': " << error.what();
+            return kSwitchBlendSeconds;
+        }
+    }
+
     bool TrySwitchTrackerSlot(int32_t slot, const std::string &btn = "dance")
     {
         const STATES from = state_machine.state;
@@ -777,7 +909,8 @@ private:
             return false;
         }
 
-        BeginSwitchTransition("to_dance_slot_" + std::to_string(slot));
+        BeginSwitchTransition("to_dance_slot_" + std::to_string(slot),
+                              TrackerSwitchBlendSeconds());
 
         curr_fsm_ctrl_ptr = target;
         curr_fsm_ctrl_ptr->Reset();
@@ -790,6 +923,13 @@ private:
             ckpt_dir  = tracker->GetPolicyCheckpointDir();
             ckpt_onnx = tracker->GetPolicyOnnxPath();
             motion    = tracker->GetMotionName();
+        }
+        else if (auto *vae = dynamic_cast<FsmVaeController *>(target))
+        {
+            policy    = vae->GetPolicyName();
+            ckpt_dir  = vae->GetPolicyCheckpointDir();
+            ckpt_onnx = vae->GetPolicyOnnxPath();
+            motion    = vae->GetMotionName();
         }
 
         EmitFsmEvent(btn, from, STATES::DANCE, true, std::string(), slot,
@@ -1004,6 +1144,21 @@ private:
         else if (state_machine.state > STATES::DAMPING)  // STAND, DANCE, LOCO
         {
             // Shared logic for stand / dance / loco: curr_fsm_ctrl_ptr is swapped.
+            // Keep frame zero active while command targets blend into a tracker.
+            // Otherwise the reference clock consumes the beginning of the motion
+            // before the policy is allowed to command it fully.
+            FsmTrackerController *active_tracker =
+                dynamic_cast<FsmTrackerController *>(curr_fsm_ctrl_ptr);
+            if (active_tracker != nullptr)
+            {
+                active_tracker->SetReferenceAdvanceEnabled(!transition_active_);
+            }
+            FsmVaeController *active_vae =
+                dynamic_cast<FsmVaeController *>(curr_fsm_ctrl_ptr);
+            if (active_vae != nullptr)
+            {
+                active_vae->SetReferenceAdvanceEnabled(!transition_active_);
+            }
             curr_fsm_ctrl_ptr->GetInput(robot_interface, gamepad);
             curr_fsm_ctrl_ptr->Calculate();
             const std::shared_ptr<const MotorState> ms = robot_interface.motor_state_buffer_.GetData();
@@ -1039,6 +1194,14 @@ private:
 
             // Smooth blend across FSM switches.
             ApplySwitchTransition(mc);
+
+            // The VAE observes last_motor_targets.  Feed it the target that
+            // actually passed torque projection and transition blending,
+            // rather than the raw network output computed above.
+            if (active_vae != nullptr)
+            {
+                active_vae->SetLastAppliedMotorTargets(mc.jpos_des);
+            }
 
             last_jpos_des_ = mc.jpos_des;
             last_kp_ = mc.kp;

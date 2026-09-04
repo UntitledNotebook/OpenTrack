@@ -33,7 +33,11 @@ EOF
 
 check_iface() {
     local iface="$1"
-    ip link show "$iface" >/dev/null 2>&1
+    if command -v ip >/dev/null 2>&1; then
+        ip link show "$iface" >/dev/null 2>&1
+    else
+        [[ -d "/sys/class/net/$iface" ]]
+    fi
 }
 
 default_cyclonedds_uri() {

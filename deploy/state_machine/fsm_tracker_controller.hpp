@@ -156,6 +156,7 @@ namespace unitree::common
         const std::string &GetPolicyCheckpointDir() const { return checkpoint_dir_name_; }
         const std::string &GetPolicyOnnxPath() const { return policy_onnx_path_; }
         const std::string &GetMotionName() const { return data_name_; }
+        void SetReferenceAdvanceEnabled(bool enabled) { reference_advance_enabled_ = enabled; }
 
     private:
         static constexpr int G1_NUM_MOTOR = 29;
@@ -285,6 +286,8 @@ namespace unitree::common
         std::vector<std::string> motor_names_;
         int inference_counter_ = 0; // 新增推理计数器
         Eigen::VectorXf last_action_;
+        bool has_last_action_ = false;
+        bool reference_advance_enabled_ = true;
         Ort::Env env_;
         Ort::SessionOptions session_options_;
         Ort::AllocatorWithDefaultOptions allocator_;

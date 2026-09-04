@@ -34,11 +34,22 @@ namespace unitree::common
         }
         pelvis_gvec_ = rpy2rotvec(imus->rpy);
         gyro_gvec_ = Eigen::Vector3f(imus->gyro[0], imus->gyro[1], imus->gyro[2]);
+
+        // Match training reset semantics: last_motor_targets starts at the
+        // measured joint pose, not at an all-zero target.
+        if (!has_last_action_)
+        {
+            last_action_ = joint_pos_;
+            has_last_action_ = true;
+        }
     }
 
     void FsmTrackerController::Reset()
     {
         YAML::Node config = YAML::LoadFile("../../storage/g1_tracking_constant.yaml");
+        motor_names_.clear();
+        history_queue_.clear();
+        dance_done_flag = false;
         auto motor_name_dict = config["motor_names"];
         for (const auto &name : motor_name_dict["LEG_L"]) // 左腿关节
             motor_names_.push_back(name.as<std::string>());
@@ -55,6 +66,7 @@ namespace unitree::common
         default_qpos_ = ReadYamlConst(config["DEFAULT_QPOS"]);
         joint_vel_scale_ = config["joint_vel_scale"].as<float>();
         inference_counter_ = 0;
+        reference_advance_enabled_ = true;
         
         // 现在只加载一个onnx模型，路径为"../storage/data/{data_name}/ref_data.onnx"
         std::string ref_data_onnx_path = "../../storage/data/" + data_name_ + "/ref_data.onnx";
@@ -75,31 +87,46 @@ namespace unitree::common
 
         // 处理qpos
         auto tensor_info_qpos = outputs[0].GetTensorTypeAndShapeInfo();
-        std::vector<int64_t> dims_qpos = tensor_info_qpos.GetShape();
+        auto validate_matrix = [](const Ort::Value &value, const char *name, int64_t min_cols) {
+            const auto shape = value.GetTensorTypeAndShapeInfo().GetShape();
+            if (shape.size() != 2 || shape[0] <= 0 || shape[1] < min_cols)
+            {
+                throw std::runtime_error(
+                    std::string("invalid ") + name + " shape in ref_data.onnx");
+            }
+            return shape;
+        };
+        std::vector<int64_t> dims_qpos = validate_matrix(outputs[0], "qpos", 7 + G1_NUM_MOTOR);
         float *data_qpos = outputs[0].GetTensorMutableData<float>();
         ref_qpos_all_ = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
             data_qpos, dims_qpos[0], dims_qpos[1]);
 
         // 处理qvel
         auto tensor_info_qvel = outputs[1].GetTensorTypeAndShapeInfo();
-        std::vector<int64_t> dims_qvel = tensor_info_qvel.GetShape();
+        std::vector<int64_t> dims_qvel = validate_matrix(outputs[1], "qvel", 6 + G1_NUM_MOTOR);
         float *data_qvel = outputs[1].GetTensorMutableData<float>();
         ref_qvel_all_ = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
             data_qvel, dims_qvel[0], dims_qvel[1]);
 
         // 处理feet_height
         auto tensor_info_feet_height = outputs[2].GetTensorTypeAndShapeInfo();
-        std::vector<int64_t> dims_feet_height = tensor_info_feet_height.GetShape();
+        std::vector<int64_t> dims_feet_height = validate_matrix(outputs[2], "feet_height", 4);
         float *data_feet_height = outputs[2].GetTensorMutableData<float>();
         ref_feet_height_all_ = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
             data_feet_height, dims_feet_height[0], dims_feet_height[1]);
 
         // 处理root_height
         auto tensor_info_root_height = outputs[3].GetTensorTypeAndShapeInfo();
-        std::vector<int64_t> dims_root_height = tensor_info_root_height.GetShape();
+        std::vector<int64_t> dims_root_height = validate_matrix(outputs[3], "root_height", 1);
         float *data_root_height = outputs[3].GetTensorMutableData<float>();
         ref_root_height_all_ = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
             data_root_height, dims_root_height[0], dims_root_height[1]);
+
+        if (dims_qvel[0] != dims_qpos[0] || dims_feet_height[0] != dims_qpos[0] ||
+            dims_root_height[0] != dims_qpos[0])
+        {
+            throw std::runtime_error("ref_data.onnx outputs have inconsistent frame counts");
+        }
 
         end_iter_ = ref_qpos_all_.rows();
         VLOG(1) << "end_iter: " << end_iter_;
@@ -117,18 +144,37 @@ namespace unitree::common
             else if (strcmp(name, "dif_joint_pos") == 0) state_sensor_len += obs_joint_num_;
             else if (strcmp(name, "dif_joint_vel") == 0) state_sensor_len += obs_joint_num_;
             else if (strcmp(name, "ref_feet_height") == 0) state_sensor_len += 4;
-            else if (strcmp(name, "ref_root_linvel") == 0) state_sensor_len += 3;
-            else if (strcmp(name, "ref_root_angvel") == 0) state_sensor_len += 3;
+            else if (strcmp(name, "ref_root_linvel") == 0 ||
+                     strcmp(name, "ref_root_linvel_local") == 0) state_sensor_len += 3;
+            else if (strcmp(name, "ref_root_angvel") == 0 ||
+                     strcmp(name, "ref_root_angvel_local") == 0) state_sensor_len += 3;
             else if (strcmp(name, "ref_root_quat") == 0) state_sensor_len += 4;
             else if (strcmp(name, "ref_root_height") == 0) state_sensor_len += 1;
             // 可根据需要扩展
         }
 
         VLOG(1) << "input shape: " << state_sensor_len;
+        if (input_names_.empty())
+        {
+            throw std::runtime_error("tracker policy has no inputs");
+        }
+        const auto policy_input_shape = session_ptr_->GetInputTypeInfo(0)
+                                            .GetTensorTypeAndShapeInfo()
+                                            .GetShape();
+        if (policy_input_shape.size() != 2 ||
+            (policy_input_shape[1] > 0 && policy_input_shape[1] != state_sensor_len))
+        {
+            throw std::runtime_error(
+                "tracker observation size does not match policy input: assembled=" +
+                std::to_string(state_sensor_len) + ", policy=" +
+                (policy_input_shape.size() >= 2 ? std::to_string(policy_input_shape[1])
+                                                : std::string("invalid-rank")));
+        }
         input_shape_ = {1, state_sensor_len};
         VLOG(1) << "history shape: " << (3 + 3 + obs_joint_num_ * 3) * 79;
         history_shape_ = {1, (3 + 3 + obs_joint_num_ * 3), 79};
         last_action_ = Eigen::VectorXf::Zero(obs_joint_num_);
+        has_last_action_ = false;
     }
 
     void FsmTrackerController::Calculate() {
@@ -193,11 +239,13 @@ namespace unitree::common
                 for (int i = 0; i < 4; i++)
                     state_sensor[index++] = ref_feet_height[i];
             }
-            else if (strcmp(name, "ref_root_linvel") == 0) {
+            else if (strcmp(name, "ref_root_linvel") == 0 ||
+                     strcmp(name, "ref_root_linvel_local") == 0) {
                 for (int i = 0; i < 3; i++)
                     state_sensor[index++] = ref_root_linvel_local[i] * joint_vel_scale_;
             }
-            else if (strcmp(name, "ref_root_angvel") == 0) {
+            else if (strcmp(name, "ref_root_angvel") == 0 ||
+                     strcmp(name, "ref_root_angvel_local") == 0) {
                 for (int i = 0; i < 3; i++)
                     state_sensor[index++] = ref_root_angvel[i] * joint_vel_scale_;
             }
@@ -286,6 +334,13 @@ namespace unitree::common
         float *nn_action_data = output_tensors[0].GetTensorMutableData<float>();
         std::vector<float> nn_action(nn_action_data,
                                      nn_action_data + output_tensors[0].GetTensorTypeAndShapeInfo().GetElementCount());
+        if (nn_action.size() != obs_joint_ids_.size())
+        {
+            throw std::runtime_error(
+                "tracker action size does not match controlled joints: action=" +
+                std::to_string(nn_action.size()) + ", joints=" +
+                std::to_string(obs_joint_ids_.size()));
+        }
 
         // 计算目标关节位置
         std::vector<float> motor_targets = default_qpos_;
@@ -316,7 +371,10 @@ namespace unitree::common
         {
             jpos_des.at(i) = motor_targets[i];
         }
-        inference_counter_++;
+        if (reference_advance_enabled_)
+        {
+            inference_counter_++;
+        }
     }
 
     std::vector<float> FsmTrackerController::GetLog()

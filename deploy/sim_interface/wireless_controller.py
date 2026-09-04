@@ -2,7 +2,13 @@ import struct
 import threading
 import os
 import time
-from pynput import keyboard
+
+try:
+    from pynput import keyboard
+    _PYNPUT_IMPORT_ERROR = None
+except ImportError as exc:
+    keyboard = None
+    _PYNPUT_IMPORT_ERROR = exc
 
 
 # Digital buttons whose pulse should be latched for at least
@@ -210,8 +216,20 @@ class UnitreeRemoteController:
 
     # ----------------------------------------------------------------- input
     def listen_keyboard(self):
-        self.listener = keyboard.Listener(on_press=self.on_press, on_release=self.on_release)
-        self.listener.start()
+        if keyboard is not None:
+            self.listener = keyboard.Listener(
+                on_press=self.on_press, on_release=self.on_release
+            )
+            self.listener.start()
+        elif not self._auto_press_spec:
+            raise RuntimeError(
+                "keyboard input is unavailable and SIM_AUTO_PRESS is empty"
+            ) from _PYNPUT_IMPORT_ERROR
+        else:
+            self.listener = None
+            print(
+                "[SIM_KEY] pynput/X11 unavailable; using headless auto-press only"
+            )
         if self._auto_press_spec:
             self._start_auto_press()
 
