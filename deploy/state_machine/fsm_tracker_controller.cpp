@@ -40,6 +40,7 @@ namespace unitree::common
     {
         YAML::Node config = YAML::LoadFile("../../storage/g1_tracking_constant.yaml");
         auto motor_name_dict = config["motor_names"];
+        motor_names_.clear();
         for (const auto &name : motor_name_dict["LEG_L"]) // 左腿关节
             motor_names_.push_back(name.as<std::string>());
         for (const auto &name : motor_name_dict["LEG_R"]) // 右腿关节
@@ -55,6 +56,8 @@ namespace unitree::common
         default_qpos_ = ReadYamlConst(config["DEFAULT_QPOS"]);
         joint_vel_scale_ = config["joint_vel_scale"].as<float>();
         inference_counter_ = 0;
+        dance_done_flag = false;
+        history_queue_.clear();
         
         // 现在只加载一个onnx模型，路径为"../storage/data/{data_name}/ref_data.onnx"
         std::string ref_data_onnx_path = "../../storage/data/" + data_name_ + "/ref_data.onnx";
@@ -117,18 +120,18 @@ namespace unitree::common
             else if (strcmp(name, "dif_joint_pos") == 0) state_sensor_len += obs_joint_num_;
             else if (strcmp(name, "dif_joint_vel") == 0) state_sensor_len += obs_joint_num_;
             else if (strcmp(name, "ref_feet_height") == 0) state_sensor_len += 4;
-            else if (strcmp(name, "ref_root_linvel") == 0) state_sensor_len += 3;
-            else if (strcmp(name, "ref_root_angvel") == 0) state_sensor_len += 3;
+            else if (strcmp(name, "ref_root_linvel") == 0 || strcmp(name, "ref_root_linvel_local") == 0) state_sensor_len += 3;
+            else if (strcmp(name, "ref_root_angvel") == 0 || strcmp(name, "ref_root_angvel_local") == 0) state_sensor_len += 3;
             else if (strcmp(name, "ref_root_quat") == 0) state_sensor_len += 4;
             else if (strcmp(name, "ref_root_height") == 0) state_sensor_len += 1;
-            // 可根据需要扩展
+            else throw std::runtime_error(std::string("Unsupported tracker observation key: ") + name);
         }
 
         VLOG(1) << "input shape: " << state_sensor_len;
         input_shape_ = {1, state_sensor_len};
         VLOG(1) << "history shape: " << (3 + 3 + obs_joint_num_ * 3) * 79;
         history_shape_ = {1, (3 + 3 + obs_joint_num_ * 3), 79};
-        last_action_ = Eigen::VectorXf::Zero(obs_joint_num_);
+        last_motor_targets_ = Eigen::VectorXf::Zero(G1_NUM_MOTOR);
     }
 
     void FsmTrackerController::Calculate() {
@@ -136,6 +139,13 @@ namespace unitree::common
         {
             dance_done_flag = true;
             return;
+        }
+
+        // GetInput runs after Reset, so use fresh joint feedback on every entry.
+        // Training initializes last_motor_targets to the measured joint positions.
+        if (inference_counter_ == 0)
+        {
+            last_motor_targets_ = joint_pos_;
         }
 
         // 预先准备所有obs_keys可能需要的数据
@@ -178,8 +188,8 @@ namespace unitree::common
                     state_sensor[index++] = joint_vel_[id] * joint_vel_scale_;
             }
             else if (strcmp(name, "last_motor_targets") == 0) {
-                for (int j = 0; j < last_action_.size(); ++j)
-                    state_sensor[index++] = last_action_[j];
+                for (int id : obs_joint_ids_)
+                    state_sensor[index++] = last_motor_targets_[id];
             }
             else if (strcmp(name, "dif_joint_pos") == 0) {
                 for (int id : obs_joint_ids_)
@@ -193,11 +203,11 @@ namespace unitree::common
                 for (int i = 0; i < 4; i++)
                     state_sensor[index++] = ref_feet_height[i];
             }
-            else if (strcmp(name, "ref_root_linvel") == 0) {
+            else if (strcmp(name, "ref_root_linvel") == 0 || strcmp(name, "ref_root_linvel_local") == 0) {
                 for (int i = 0; i < 3; i++)
                     state_sensor[index++] = ref_root_linvel_local[i] * joint_vel_scale_;
             }
-            else if (strcmp(name, "ref_root_angvel") == 0) {
+            else if (strcmp(name, "ref_root_angvel") == 0 || strcmp(name, "ref_root_angvel_local") == 0) {
                 for (int i = 0; i < 3; i++)
                     state_sensor[index++] = ref_root_angvel[i] * joint_vel_scale_;
             }
@@ -296,7 +306,7 @@ namespace unitree::common
             int idx = obs_joint_ids_[i];
             motor_targets[idx] = ref_qpos[idx] + nn_action[i] * action_scale_;
         }
-        last_action_ = Eigen::Map<Eigen::VectorXf>(motor_targets.data(), motor_targets.size());
+        last_motor_targets_ = Eigen::Map<Eigen::VectorXf>(motor_targets.data(), motor_targets.size());
 
         // 更新history
         std::vector<float> current_history(3 + 3 + 29 * 3);

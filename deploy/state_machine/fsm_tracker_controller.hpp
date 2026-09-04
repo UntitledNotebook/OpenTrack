@@ -284,7 +284,7 @@ namespace unitree::common
         
         std::vector<std::string> motor_names_;
         int inference_counter_ = 0; // 新增推理计数器
-        Eigen::VectorXf last_action_;
+        Eigen::VectorXf last_motor_targets_;
         Ort::Env env_;
         Ort::SessionOptions session_options_;
         Ort::AllocatorWithDefaultOptions allocator_;

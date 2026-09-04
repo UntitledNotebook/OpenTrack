@@ -1,108 +1,42 @@
 # Motion Checkpoint List
 
-Here, we list the policy checkpoint and reference motion corresponding to each tracker slot in the table [] for quick reference when operating the remote.
+The current bindings use `G1TrackingGeneralDR4010` for all five motions in group 0.
+`B` cycles populated groups; with this configuration it stays in group 0.
 
-### Specialist motions 1-20:
+| Slot | Button in `LOCO` | Simulation keyboard | Motion |
+|---|---|---|---|
+| 0 | Up | Up arrow | `rr_stand_still` |
+| 1 | Down | Down arrow | `rr_walk_slow` |
+| 2 | Left | Left arrow | `rr_two_foot_jump` |
+| 3 | Right | Right arrow | `rr_hurdle_jump` |
+| 4 | `L1` + Up | Hold `1`, press Up arrow | `vae_train_shun002_first6s` |
 
-| Button in `LOCO` | Checkpoint | Motion |
-|---|---|---|
-| Up | `05151715_G1TrackingGeneralDR_new_specialist1` | `dance1_subject2` |
-| Down | `05151715_G1TrackingGeneralDR_new_specialist1` | `dance1_subject3` |
-| Left | `05151715_G1TrackingGeneralDR_new_specialist1` | `dance2_subject1` |
-| Right | `05151715_G1TrackingGeneralDR_new_specialist1` | `dance2_subject2` |
-| `L1` + Up | `05151715_G1TrackingGeneralDR_new_specialist1` | `dance2_subject3` |
-| `L1` + Down | `05151715_G1TrackingGeneralDR_new_specialist1` | `dance2_subject4` |
-| `L1` + Left | `05151715_G1TrackingGeneralDR_new_specialist1` | `dance2_subject5` |
-| `L1` + Right | `05132118_G1TrackingGeneralDR_new_specialist2` | `fallAndGetUp1_subject1` |
-| `R1` + Up | `05132118_G1TrackingGeneralDR_new_specialist2` | `fallAndGetUp1_subject4` |
-| `R1` + Down | `05132118_G1TrackingGeneralDR_new_specialist2` | `fallAndGetUp1_subject5` |
-| `R1` + Left | `05132118_G1TrackingGeneralDR_new_specialist2` | `fallAndGetUp2_subject2` |
-| `R1` + Right | `05132118_G1TrackingGeneralDR_new_specialist2` | `fallAndGetUp2_subject3` |
-| `L2` + Up | `05132118_G1TrackingGeneralDR_new_specialist2` | `fallAndGetUp3_subject1` |
-| `L2` + Down | `05152044_G1TrackingGeneralDR_new_specialist3_no_gvec` | `fight1_subject2` |
-| `L2` + Left | `05152044_G1TrackingGeneralDR_new_specialist3_no_gvec` | `fight1_subject3` |
-| `L2` + Right | `05152044_G1TrackingGeneralDR_new_specialist3_no_gvec` | `fight1_subject5` |
-| `R2` + Up | `05152044_G1TrackingGeneralDR_new_specialist3_no_gvec` | `fightAndSports1_subject1` |
-| `R2` + Down | `05152044_G1TrackingGeneralDR_new_specialist3_no_gvec` | `fightAndSports1_subject4` |
-| `R2` + Left | `05140127_G1TrackingGeneralDR_new_specialist4` | `jumps1_subject1` |
-| `R2` + Right | `05140127_G1TrackingGeneralDR_new_specialist4` | `jumps1_subject5` |
+All other slots are empty. Select a motion from `LOCO`; after the clip finishes,
+the controller returns to `LOCO` and runs `G1-Walk.onnx` again.
 
-### Specialist motions 21-40:
+## Checkpoint and reference files
 
-| Button in `LOCO` | Checkpoint | Motion |
-|---|---|---|
-| Up | `05140127_G1TrackingGeneralDR_new_specialist4` | `run1_subject2` |
-| Down | `05140127_G1TrackingGeneralDR_new_specialist4` | `run1_subject5` |
-| Left | `05140127_G1TrackingGeneralDR_new_specialist4` | `run2_subject1` |
-| Right | `05140127_G1TrackingGeneralDR_new_specialist4` | `run2_subject4` |
-| `L1` + Up | `05140134_G1TrackingGeneralDR_new_specialist5` | `sprint1_subject2` |
-| `L1` + Down | `05140134_G1TrackingGeneralDR_new_specialist5` | `sprint1_subject4` |
-| `L1` + Left | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk1_subject1` |
-| `L1` + Right | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk1_subject2` |
-| `R1` + Up | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk1_subject5` |
-| `R1` + Down | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk2_subject1` |
-| `R1` + Left | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk2_subject4` |
-| `R1` + Right | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk3_subject2` |
-| `L2` + Up | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk3_subject5` |
-| `L2` + Down | `05140134_G1TrackingGeneralDR_new_specialist5` | `walk4_subject1` |
-| `L2` + Left | `05141554_G1TrackingGeneralDR_new_specialist6` | `walk2_subject3` |
-| `L2` + Right | `05141554_G1TrackingGeneralDR_new_specialist6` | `walk3_subject1` |
-| `R2` + Up | `05141554_G1TrackingGeneralDR_new_specialist6` | `walk3_subject3` |
-| `R2` + Down | `05141554_G1TrackingGeneralDR_new_specialist6` | `walk3_subject4` |
-| `R2` + Left | `05141348_G1TrackingGeneralDR_new_specialist7` | `dance1_subject1` |
-| `R2` + Right | `05122021_G1TrackingGeneralDR_new_specialist8` | `jumps1_subject2` |
+The policy is loaded from:
 
-### Generalist motions 1-20:
+```
+storage/policy/G1TrackingGeneralDR4010/checkpoints/<largest-numeric-directory>/policy.onnx
+```
 
-| Button in `LOCO` | Checkpoint | Motion |
-|---|---|---|
-| Up | `general_tracker_lafan1_v2` | `dance1_subject2` |
-| Down | `general_tracker_lafan1_v2` | `dance1_subject3` |
-| Left | `general_tracker_lafan1_v2` | `dance2_subject1` |
-| Right | `general_tracker_lafan1_v2` | `dance2_subject2` |
-| `L1` + Up | `general_tracker_lafan1_v2` | `dance2_subject3` |
-| `L1` + Down | `general_tracker_lafan1_v2` | `dance2_subject4` |
-| `L1` + Left | `general_tracker_lafan1_v2` | `dance2_subject5` |
-| `L1` + Right | `general_tracker_lafan1_v2` | `fallAndGetUp1_subject1` |
-| `R1` + Up | `general_tracker_lafan1_v2` | `fallAndGetUp1_subject4` |
-| `R1` + Down | `general_tracker_lafan1_v2` | `fallAndGetUp1_subject5` |
-| `R1` + Left | `general_tracker_lafan1_v2` | `fallAndGetUp2_subject2` |
-| `R1` + Right | `general_tracker_lafan1_v2` | `fallAndGetUp2_subject3` |
-| `L2` + Up | `general_tracker_lafan1_v2` | `fallAndGetUp3_subject1` |
-| `L2` + Down | `general_tracker_lafan1_v2` | `fight1_subject2` |
-| `L2` + Left | `general_tracker_lafan1_v2` | `fight1_subject3` |
-| `L2` + Right | `general_tracker_lafan1_v2` | `fight1_subject5` |
-| `R2` + Up | `general_tracker_lafan1_v2` | `fightAndSports1_subject1` |
-| `R2` + Down | `general_tracker_lafan1_v2` | `fightAndSports1_subject4` |
-| `R2` + Left | `general_tracker_lafan1_v2` | `jumps1_subject1` |
-| `R2` + Right | `general_tracker_lafan1_v2` | `jumps1_subject5` |
+The currently installed latest checkpoint is `002001469440`. The observation
+order comes from `storage/policy/G1TrackingGeneralDR4010/checkpoints/config.json`.
+Each reference is loaded from `storage/data/<motion>/ref_data.onnx`.
+The actual selected checkpoint and motion are recorded in `selfcheck.log` and
+`events.log` under the launcher's session directory in `deploy_logs/`.
 
-### Generalist motions 21-40:
+## Simulation sequence
 
-| Button in `LOCO` | Checkpoint | Motion |
-|---|---|---|
-| Up | `general_tracker_lafan1_v2` | `run1_subject2` |
-| Down | `general_tracker_lafan1_v2` | `run1_subject5` |
-| Left | `general_tracker_lafan1_v2` | `run2_subject1` |
-| Right | `general_tracker_lafan1_v2` | `run2_subject4` |
-| `L1` + Up | `general_tracker_lafan1_v2` | `sprint1_subject2` |
-| `L1` + Down | `general_tracker_lafan1_v2` | `sprint1_subject4` |
-| `L1` + Left | `general_tracker_lafan1_v2` | `walk1_subject1` |
-| `L1` + Right | `general_tracker_lafan1_v2` | `walk1_subject2` |
-| `R1` + Up | `general_tracker_lafan1_v2` | `walk1_subject5` |
-| `R1` + Down | `general_tracker_lafan1_v2` | `walk2_subject1` |
-| `R1` + Left | `general_tracker_lafan1_v2` | `walk2_subject4` |
-| `R1` + Right | `general_tracker_lafan1_v2` | `walk3_subject2` |
-| `L2` + Up | `general_tracker_lafan1_v2` | `walk3_subject5` |
-| `L2` + Down | `general_tracker_lafan1_v2` | `walk4_subject1` |
-| `L2` + Left | `general_tracker_lafan1_v2` | `walk2_subject3` |
-| `L2` + Right | `general_tracker_lafan1_v2` | `walk3_subject1` |
-| `R2` + Up | `general_tracker_lafan1_v2` | `walk3_subject3` |
-| `R2` + Down | `general_tracker_lafan1_v2` | `walk3_subject4` |
-| `R2` + Left | `general_tracker_lafan1_v2` | `dance1_subject1` |
-| `R2` + Right | `general_tracker_lafan1_v2` | `jumps1_subject2` |
+1. Start the simulator and C++ deployment controller over `lo`.
+2. Press `4` (`R2`) to start the control loop.
+3. Press `a` (`A`) to enter `STAND`.
+4. Press `x` (`X`) to enter `LOCO`.
+5. Press `F5` to enable MuJoCo physics.
+6. Press Up to run `rr_stand_still`, or select another motion from the table.
 
-
-### Example
-
-If you want to play the `walk4_subject1` motion using the `05140134_G1TrackingGeneralDR_new_specialist5` checkpoint, the button sequence should be: press `R2` to start the control loop, press `A` for `STAND`, press `X` for `LOCO`, press `B` once to select specialist motions 21-40, then hold `L2` and press Down.
+On the robot, the corresponding sequence is `R2`, `A`, `X`, then the motion
+button. `A` returns to standing, `X` returns to locomotion, and `F1` exits the
+process (`6` on the simulation keyboard).

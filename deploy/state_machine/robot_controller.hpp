@@ -104,57 +104,13 @@ public:
             const char *motion;
         };
 
-        // demo_v2.json: 40 motions, 8 policies. Fill mode 0 (1-20) and mode 1 (21-40).
-        const std::array<MotionBinding, 40> motion_bindings = {{
-            {"05151715_G1TrackingGeneralDR_new_specialist1", "dance1_subject2"},
-            {"05151715_G1TrackingGeneralDR_new_specialist1", "dance1_subject3"},
-            {"05151715_G1TrackingGeneralDR_new_specialist1", "dance2_subject1"},
-            {"05151715_G1TrackingGeneralDR_new_specialist1", "dance2_subject2"},
-
-            {"05151715_G1TrackingGeneralDR_new_specialist1", "dance2_subject3"},
-            {"05151715_G1TrackingGeneralDR_new_specialist1", "dance2_subject4"},
-            {"05151715_G1TrackingGeneralDR_new_specialist1", "dance2_subject5"},
-            {"05132118_G1TrackingGeneralDR_new_specialist2", "fallAndGetUp1_subject1"},
-
-            {"05132118_G1TrackingGeneralDR_new_specialist2", "fallAndGetUp1_subject4"},
-            {"05132118_G1TrackingGeneralDR_new_specialist2", "fallAndGetUp1_subject5"},
-            {"05132118_G1TrackingGeneralDR_new_specialist2", "fallAndGetUp2_subject2"},
-            {"05132118_G1TrackingGeneralDR_new_specialist2", "fallAndGetUp2_subject3"},
-
-            {"05132118_G1TrackingGeneralDR_new_specialist2", "fallAndGetUp3_subject1"},
-            {"05152044_G1TrackingGeneralDR_new_specialist3_no_gvec", "fight1_subject2"},
-            {"05152044_G1TrackingGeneralDR_new_specialist3_no_gvec", "fight1_subject3"},
-            {"05152044_G1TrackingGeneralDR_new_specialist3_no_gvec", "fight1_subject5"},
-
-            {"05152044_G1TrackingGeneralDR_new_specialist3_no_gvec", "fightAndSports1_subject1"},
-            {"05152044_G1TrackingGeneralDR_new_specialist3_no_gvec", "fightAndSports1_subject4"},
-            {"05140127_G1TrackingGeneralDR_new_specialist4", "jumps1_subject1"},
-            {"05140127_G1TrackingGeneralDR_new_specialist4", "jumps1_subject5"},
-
-            {"05140127_G1TrackingGeneralDR_new_specialist4", "run1_subject2"},
-            {"05140127_G1TrackingGeneralDR_new_specialist4", "run1_subject5"},
-            {"05140127_G1TrackingGeneralDR_new_specialist4", "run2_subject1"},
-            {"05140127_G1TrackingGeneralDR_new_specialist4", "run2_subject4"},
-
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "sprint1_subject2"},
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "sprint1_subject4"},
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk1_subject1"},
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk1_subject2"},
-
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk1_subject5"},
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk2_subject1"},
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk2_subject4"},
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk3_subject2"},
-
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk3_subject5"},
-            {"05140134_G1TrackingGeneralDR_new_specialist5", "walk4_subject1"},
-            {"05141554_G1TrackingGeneralDR_new_specialist6", "walk2_subject3"},
-            {"05141554_G1TrackingGeneralDR_new_specialist6", "walk3_subject1"},
-
-            {"05141554_G1TrackingGeneralDR_new_specialist6", "walk3_subject3"},
-            {"05141554_G1TrackingGeneralDR_new_specialist6", "walk3_subject4"},
-            {"05141348_G1TrackingGeneralDR_new_specialist7", "dance1_subject1"},
-            {"05122021_G1TrackingGeneralDR_new_specialist8", "jumps1_subject2"},
+        // Group 0: locally installed tracker and converted reference motions.
+        // Up, Down, Left, Right, L1+Up. Other slots remain empty.
+        const std::array<MotionBinding, 5> motion_bindings = {{
+            {"G1TrackingGeneralDR4010", "rr_stand_still"},
+            {"G1TrackingGeneralDR4010", "rr_walk_slow"},
+            {"G1TrackingGeneralDR4010", "rr_two_foot_jump"},
+            {"G1TrackingGeneralDR4010", "rr_hurdle_jump"},
         }};
 
         for (size_t i = 0; i < motion_bindings.size(); ++i)
@@ -163,20 +119,6 @@ public:
             const int slot = static_cast<int>(i % 20);
             _stateList.controller_mapping[group][slot] = new FsmTrackerController(
                 motion_bindings[i].policy, motion_bindings[i].motion);
-        }
-
-        // Mode 2/3: generalist policy bound to the same 40 LAFAN motions in the same order.
-        // The motion-name order in `motion_bindings` already matches
-        //   storage/policy/general_tracker_lafan1_v2/checkpoints/config.json :
-        //   reference_traj_config.name.lafan1
-        // so we just rebind the same motion names under the generalist policy.
-        static constexpr const char *kGeneralistPolicy = "general_tracker_lafan1_v2";
-        for (size_t i = 0; i < motion_bindings.size(); ++i)
-        {
-            const int group = static_cast<int>(i / 20) + 2; // 2 or 3
-            const int slot = static_cast<int>(i % 20);
-            _stateList.controller_mapping[group][slot] = new FsmTrackerController(
-                kGeneralistPolicy, motion_bindings[i].motion);
         }
 
         curr_fsm_ctrl_ptr = _stateList.invalid;
@@ -849,27 +791,21 @@ private:
         }
         else if (gamepad.B.on_press)
         {
-            std::string voice_text;
-            if (mode_index == 0)
+            // Cycle only groups with registered trackers. A single-group setup
+            // stays in group 0 instead of selecting unavailable policy groups.
+            const int group_count = static_cast<int>(_stateList.controller_mapping.size());
+            for (int offset = 1; offset <= group_count; ++offset)
             {
-                mode_index = 1;
-                voice_text = "Specialist motions twenty one to forty.";
+                const int candidate = (mode_index + offset) % group_count;
+                const auto &slots = _stateList.controller_mapping[candidate];
+                if (std::any_of(slots.begin(), slots.end(),
+                                [](const BasicUserController *ctrl) { return ctrl != nullptr; }))
+                {
+                    mode_index = candidate;
+                    break;
+                }
             }
-            else if (mode_index == 1)
-            {
-                mode_index = 2;
-                voice_text = "Generalist motions one to twenty.";
-            }
-            else if (mode_index == 2)
-            {
-                mode_index = 3;
-                voice_text = "Generalist motions twenty one to forty.";
-            }
-            else if (mode_index == 3)
-            {
-                mode_index = 0;
-                voice_text = "Specialist motions one to twenty.";
-            }
+            const std::string voice_text = "Tracker group " + std::to_string(mode_index + 1) + ".";
 
             int32_t tts_ret = -1;
             if (!voice_text.empty() && client != nullptr)
