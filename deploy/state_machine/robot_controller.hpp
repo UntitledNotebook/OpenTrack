@@ -38,6 +38,7 @@
 
 // ControlFSM States
 #include "fsm_basic_controller.hpp"
+#include "fsm_scaletrack_controller.hpp"
 #include "fsm_tracker_controller.hpp"
 #include "fsm_vae_controller.hpp"
 #include "fsm_loco_controller.hpp"
@@ -112,6 +113,8 @@ public:
         const char *custom_motions_env = std::getenv("G1_TRACKER_MOTIONS");
         const char *custom_vae_policy_env = std::getenv("G1_VAE_POLICY");
         const char *custom_vae_motions_env = std::getenv("G1_VAE_MOTIONS");
+        const char *custom_scaletrack_policy_env = std::getenv("G1_SCALETRACK_POLICY");
+        const char *custom_scaletrack_motions_env = std::getenv("G1_SCALETRACK_MOTIONS");
         const bool has_custom_policy =
             custom_policy_env != nullptr && custom_policy_env[0] != '\0';
         const bool has_custom_motions =
@@ -120,6 +123,10 @@ public:
             custom_vae_policy_env != nullptr && custom_vae_policy_env[0] != '\0';
         const bool has_custom_vae_motions =
             custom_vae_motions_env != nullptr && custom_vae_motions_env[0] != '\0';
+        const bool has_custom_scaletrack_policy =
+            custom_scaletrack_policy_env != nullptr && custom_scaletrack_policy_env[0] != '\0';
+        const bool has_custom_scaletrack_motions =
+            custom_scaletrack_motions_env != nullptr && custom_scaletrack_motions_env[0] != '\0';
         if (has_custom_policy != has_custom_motions)
         {
             throw std::runtime_error(
@@ -130,13 +137,50 @@ public:
             throw std::runtime_error(
                 "G1_VAE_POLICY and G1_VAE_MOTIONS must be set together");
         }
-        if (has_custom_policy && has_custom_vae_policy)
+        if (has_custom_scaletrack_policy != has_custom_scaletrack_motions)
         {
             throw std::runtime_error(
-                "configure either a tracker registry or a VAE registry, not both");
+                "G1_SCALETRACK_POLICY and G1_SCALETRACK_MOTIONS must be set together");
+        }
+        const int custom_registry_count =
+            static_cast<int>(has_custom_policy) +
+            static_cast<int>(has_custom_vae_policy) +
+            static_cast<int>(has_custom_scaletrack_policy);
+        if (custom_registry_count > 1)
+        {
+            throw std::runtime_error(
+                "configure only one of tracker, VAE, or ScaleTrack registries");
         }
 
-        if (has_custom_vae_policy)
+        if (has_custom_scaletrack_policy)
+        {
+            std::stringstream motion_stream(custom_scaletrack_motions_env);
+            std::string motion;
+            int slot = 0;
+            while (std::getline(motion_stream, motion, ','))
+            {
+                const auto first = motion.find_first_not_of(" \t");
+                const auto last = motion.find_last_not_of(" \t");
+                if (first == std::string::npos)
+                {
+                    continue;
+                }
+                motion = motion.substr(first, last - first + 1);
+                if (slot >= 20)
+                {
+                    throw std::runtime_error("G1_SCALETRACK_MOTIONS supports at most 20 entries");
+                }
+                _stateList.controller_mapping[0][slot++] =
+                    new FsmScaleTrackController(custom_scaletrack_policy_env, motion);
+            }
+            if (slot == 0)
+            {
+                throw std::runtime_error("G1_SCALETRACK_MOTIONS did not contain a motion name");
+            }
+            LOG(INFO) << "[SCALETRACK_REGISTRY] custom policy=" << custom_scaletrack_policy_env
+                      << ", motion_count=" << slot;
+        }
+        else if (has_custom_vae_policy)
         {
             std::stringstream motion_stream(custom_vae_motions_env);
             std::string motion;
@@ -329,6 +373,16 @@ public:
                                             ", checkpoint_dir=" + vae->GetPolicyCheckpointDir() +
                                             ", inference=" + vae->GetInferenceMode() +
                                             ", noise_std=" + std::to_string(vae->GetNoiseStd());
+                        lg.Selfcheck(key, value);
+                    }
+                    auto *scaletrack = dynamic_cast<FsmScaleTrackController *>(ctrl);
+                    if (scaletrack != nullptr)
+                    {
+                        std::string value = std::string("controller=scaletrack, policy=") +
+                                            scaletrack->GetPolicyName() +
+                                            ", motion=" + scaletrack->GetMotionName() +
+                                            ", checkpoint_dir=" + scaletrack->GetPolicyCheckpointDir() +
+                                            ", mode=" + std::to_string(scaletrack->GetModeIndex());
                         lg.Selfcheck(key, value);
                     }
                 }
@@ -774,7 +828,8 @@ private:
         }
 
         return dynamic_cast<FsmTrackerController *>(curr_fsm_ctrl_ptr) != nullptr ||
-               dynamic_cast<FsmVaeController *>(curr_fsm_ctrl_ptr) != nullptr;
+               dynamic_cast<FsmVaeController *>(curr_fsm_ctrl_ptr) != nullptr ||
+               dynamic_cast<FsmScaleTrackController *>(curr_fsm_ctrl_ptr) != nullptr;
     }
 
     DanceTorqueProjectionStats ApplyDanceTorqueProjection(
@@ -930,6 +985,13 @@ private:
             ckpt_dir  = vae->GetPolicyCheckpointDir();
             ckpt_onnx = vae->GetPolicyOnnxPath();
             motion    = vae->GetMotionName();
+        }
+        else if (auto *scaletrack = dynamic_cast<FsmScaleTrackController *>(target))
+        {
+            policy    = scaletrack->GetPolicyName();
+            ckpt_dir  = scaletrack->GetPolicyCheckpointDir();
+            ckpt_onnx = scaletrack->GetPolicyOnnxPath();
+            motion    = scaletrack->GetMotionName();
         }
 
         EmitFsmEvent(btn, from, STATES::DANCE, true, std::string(), slot,
@@ -1158,6 +1220,12 @@ private:
             if (active_vae != nullptr)
             {
                 active_vae->SetReferenceAdvanceEnabled(!transition_active_);
+            }
+            FsmScaleTrackController *active_scaletrack =
+                dynamic_cast<FsmScaleTrackController *>(curr_fsm_ctrl_ptr);
+            if (active_scaletrack != nullptr)
+            {
+                active_scaletrack->SetReferenceAdvanceEnabled(!transition_active_);
             }
             curr_fsm_ctrl_ptr->GetInput(robot_interface, gamepad);
             curr_fsm_ctrl_ptr->Calculate();
