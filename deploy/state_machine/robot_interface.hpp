@@ -169,6 +169,12 @@ namespace unitree::common
 
             low_cmd.mode_pr() = 0;
             low_cmd.mode_machine() = mc->mode_machine;
+            // The final 32-bit field stores the checksum from the previous
+            // command because low_cmd is reused. Unitree's CRC span excludes
+            // that field (word_count - 1), but clear it explicitly before
+            // every calculation so the checksum bytes are in their neutral
+            // state while a frame is assembled.
+            low_cmd.crc() = 0U;
             low_cmd.crc() = crc32_core((uint32_t *)&low_cmd, (sizeof(low_cmd) >> 2) - 1);
 
             cmd = low_cmd;
@@ -178,6 +184,7 @@ namespace unitree::common
     private:
         void InitLowCmd()
         {
+            low_cmd.crc() = 0U;
             for (int i = 0; i < 29; i++)
             {
                 low_cmd.motor_cmd()[i].mode() = (0x01); // motor switch to servo (PMSM) mode

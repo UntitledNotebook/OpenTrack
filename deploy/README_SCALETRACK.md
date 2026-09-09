@@ -95,7 +95,33 @@ mode `0..7`; leave it at `7` for full-body tracking.  The reference clock is
 held at frame zero during the DANCE transition blend, just like the other
 deployment controllers.
 
-## 4. Current smoke-test status
+## 4. Run on a real G1-4010
+
+Do not start with the robot standing freely. Suspend it securely for the first
+low-level test, keep the emergency stop accessible, and validate every motion
+in MuJoCo first. On the robot, identify the Ethernet interface connected to
+the G1 DDS network (commonly `eth0`) and run the asset-only preflight:
+
+```bash
+cd /path/to/OpenTrack/deploy
+./build_w_torque_projection.sh
+./start_scaletrack_deploy.sh   scaletrack_4010_landingdr_v1   scaletrack_single_jump,scaletrack_walk_slow   --iface eth0   --check-only
+```
+
+After the preflight reports `PASS`, remove `--check-only`:
+
+```bash
+./start_scaletrack_deploy.sh   scaletrack_4010_landingdr_v1   scaletrack_single_jump,scaletrack_walk_slow   --iface eth0
+```
+
+The real-robot launcher always uses the torque-projection build and refuses
+`lo`, a missing interface, incomplete policy/reference assets, an invalid
+ScaleTrack mode, or a `CYCLONEDDS_URI` restricted to loopback. It prints the
+selected numeric checkpoint before starting; the controller then waits at
+`Press R2 to start!`. Use the Unitree remote in the normal sequence:
+`R2 -> A -> X -> D-pad`. There is no `SimStart` step on hardware.
+
+## 5. Current smoke-test status
 
 The local `model_400.pt` export was checked with ONNX Runtime on CPU:
 
@@ -113,3 +139,6 @@ The local `model_400.pt` export was checked with ONNX Runtime on CPU:
 `model_400.pt` is only an interface smoke checkpoint, not a final quality
 checkpoint.  Re-run step 1 after training; the C++ loader automatically picks
 the largest exported numeric checkpoint directory.
+
+The currently packaged default is `model_800` (checkpoint directory `800`).
+Its ONNX model passes the checker and finite CPU inference validation.
